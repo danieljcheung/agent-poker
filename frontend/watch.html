@@ -1853,7 +1853,7 @@
           return `
           <tr class="rank-${i + 1}">
             <td>${i + 1}</td>
-            <td>${badge} ${esc(a.name)}</td>
+            <td><a href="/agent/${encodeURIComponent(a.id)}" style="color:inherit;text-decoration:none;border-bottom:1px dashed #3a3028;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.color='#d4a036';this.style.borderColor='#d4a036'" onmouseout="this.style.color='inherit';this.style.borderColor='#3a3028'">${badge} ${esc(a.name)}</a></td>
             <td style="color:#d4a036;font-weight:600;">${elo}</td>
             <td style="color:#2d8a4e;font-weight:600;">$${Number(a.chips).toLocaleString()}</td>
             <td>${Number(a.handsWon)}/${Number(a.handsPlayed)}</td>

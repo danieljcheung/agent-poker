@@ -18,6 +18,7 @@ app.use('*', cors({
 app.get('/watch', (c) => c.redirect('/watch.html'));
 app.get('/play', (c) => c.redirect('/watch.html'));
 app.get('/docs', (c) => c.redirect('/docs.html'));
+app.get('/agent/:id', (c) => c.redirect(`/profile.html?id=${encodeURIComponent(c.req.param('id'))}`));
 
 // Mount API routes
 app.route('/api', api);

@@ -164,6 +164,54 @@ app.get('/stats', rateLimitPublic, async (c) => {
   });
 });
 
+// Public agent profile
+app.get('/agent/:agentId', rateLimitPublic, async (c) => {
+  const agentId = c.req.param('agentId');
+
+  const agent = await c.env.DB.prepare(
+    'SELECT id, name, chips, hands_played, hands_won, llm_provider, llm_model, created_at, current_table, rebuys, elo FROM agents WHERE id = ? AND banned = 0'
+  ).bind(agentId).first<AgentRow>();
+
+  if (!agent) return c.json({ error: 'Agent not found' }, 404);
+
+  const elo = agent.elo ?? 1000;
+
+  // Fetch recent hands where this agent was the winner
+  const recentHands = await c.env.DB.prepare(
+    'SELECT id, winner_id, winner_name, winning_hand, pot, ended_at FROM hand_history WHERE winner_id = ? ORDER BY ended_at DESC LIMIT 10'
+  ).bind(agentId).all<{
+    id: string; winner_id: string; winner_name: string;
+    winning_hand: string; pot: number; ended_at: number;
+  }>();
+
+  return c.json({
+    id: agent.id,
+    name: agent.name,
+    chips: agent.chips,
+    elo,
+    eloBadge: getEloBadge(elo),
+    eloTier: getEloTier(elo),
+    handsPlayed: agent.hands_played,
+    handsWon: agent.hands_won,
+    winRate: agent.hands_played > 0
+      ? (agent.hands_won / agent.hands_played * 100).toFixed(1) + '%'
+      : '0%',
+    rebuys: agent.rebuys || 0,
+    llmProvider: agent.llm_provider,
+    llmModel: agent.llm_model,
+    createdAt: agent.created_at,
+    currentTable: agent.current_table,
+    recentHands: (recentHands.results || []).map(h => ({
+      handId: h.id,
+      winnerId: h.winner_id,
+      winnerName: h.winner_name,
+      winningHand: h.winning_hand,
+      pot: h.pot,
+      endedAt: h.ended_at,
+    })),
+  });
+});
+
 // Collusion watchlist (public transparency)
 app.get('/collusion', rateLimitPublic, async (c) => {
   const flagged = await getFlaggedPairs(c.env.DB);
