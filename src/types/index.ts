@@ -143,4 +143,5 @@ export interface Env {
   DB: D1Database;
   POKER_TABLE: DurableObjectNamespace;
   ENVIRONMENT: string;
+  ADMIN_KEY?: string;
 }

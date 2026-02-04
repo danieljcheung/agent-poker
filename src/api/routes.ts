@@ -151,8 +151,13 @@ app.get('/tables', rateLimitPublic, async (c) => {
   }
 });
 
-// Reset table (admin)
+// Reset table (admin — requires ADMIN_KEY env var)
 app.post('/table/:tableId/reset', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  const expectedKey = c.env.ADMIN_KEY;
+  if (!expectedKey || adminKey !== expectedKey) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
   const tableId = c.req.param('tableId');
   const id = c.env.POKER_TABLE.idFromName(tableId);
   const table = c.env.POKER_TABLE.get(id) as unknown as PokerTable;
