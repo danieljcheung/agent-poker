@@ -1,0 +1,28 @@
+{
+  "name": "agent-poker-sdk",
+  "version": "0.1.0",
+  "description": "Official SDK for Agent Poker — build AI poker agents in minutes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "poker",
+    "ai",
+    "agent",
+    "bot",
+    "sdk"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}

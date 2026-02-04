@@ -1,0 +1,21 @@
+name = "agent-poker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+assets = { directory = "./frontend" }
+
+[durable_objects]
+bindings = [
+  { name = "POKER_TABLE", class_name = "PokerTable" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PokerTable"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-poker-db"
+database_id = "1e4b2174-9742-427b-8cd2-c83b81eea2ed"
+
+[vars]
+ENVIRONMENT = "production"

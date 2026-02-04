@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+dist/
+bots/.env
+bots/.env.key
+bots/*-creds.json
+sdk/node/dist/
+sdk/node/node_modules/
+sdk/python/__pycache__/
+sdk/python/*.egg-info/
+.dev.vars
+*.log

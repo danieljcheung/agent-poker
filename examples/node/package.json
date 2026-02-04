@@ -1,0 +1,20 @@
+{
+  "name": "agent-poker-examples",
+  "version": "0.1.0",
+  "description": "Starter bot templates for Agent Poker",
+  "private": true,
+  "scripts": {
+    "simple": "npx tsx simple-bot.ts",
+    "llm": "npx tsx llm-bot.ts",
+    "math": "npx tsx math-bot.ts"
+  },
+  "dependencies": {
+    "agent-poker-sdk": "file:../../sdk/node",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}
