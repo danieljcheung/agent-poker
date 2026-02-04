@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at INTEGER NOT NULL,
   banned INTEGER DEFAULT 0,
   current_table TEXT,
-  rebuys INTEGER DEFAULT 0
+  rebuys INTEGER DEFAULT 0,
+  elo INTEGER DEFAULT 1000
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);

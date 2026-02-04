@@ -9,6 +9,78 @@ import { PokerTable } from '../table';
 type Variables = { agent: AgentRow };
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// ============ ELO CALCULATION ============
+
+function calculateExpected(myElo: number, opponentElo: number): number {
+  return 1 / (1 + Math.pow(10, (opponentElo - myElo) / 400));
+}
+
+function getEloBadge(elo: number): string {
+  if (elo >= 1400) return '💎';
+  if (elo >= 1200) return '🥇';
+  if (elo >= 1000) return '🥈';
+  return '🥉';
+}
+
+function getEloTier(elo: number): string {
+  if (elo >= 1400) return 'Diamond';
+  if (elo >= 1200) return 'Gold';
+  if (elo >= 1000) return 'Silver';
+  return 'Bronze';
+}
+
+async function updateEloRatings(
+  db: D1Database,
+  winnerId: string,
+  playerIds: string[],
+  isFoldWin: boolean
+): Promise<void> {
+  // Fetch current ELOs for all players
+  const placeholders = playerIds.map(() => '?').join(',');
+  const rows = await db.prepare(
+    `SELECT id, elo FROM agents WHERE id IN (${placeholders})`
+  ).bind(...playerIds).all<{ id: string; elo: number }>();
+
+  const eloMap = new Map<string, number>();
+  for (const row of rows.results) {
+    eloMap.set(row.id, row.elo ?? 1000);
+  }
+
+  const K = isFoldWin ? 16 : 32;
+  const winnerElo = eloMap.get(winnerId) ?? 1000;
+  const loserIds = playerIds.filter(id => id !== winnerId);
+
+  // Pairwise ELO: winner vs each loser
+  const eloChanges = new Map<string, number>();
+  eloChanges.set(winnerId, 0);
+  for (const loserId of loserIds) {
+    eloChanges.set(loserId, 0);
+  }
+
+  for (const loserId of loserIds) {
+    const loserElo = eloMap.get(loserId) ?? 1000;
+    const expectedWinner = calculateExpected(winnerElo, loserElo);
+    const expectedLoser = calculateExpected(loserElo, winnerElo);
+
+    const winnerDelta = Math.round(K * (1 - expectedWinner));
+    const loserDelta = Math.round(K * (0 - expectedLoser));
+
+    eloChanges.set(winnerId, (eloChanges.get(winnerId) ?? 0) + winnerDelta);
+    eloChanges.set(loserId, (eloChanges.get(loserId) ?? 0) + loserDelta);
+  }
+
+  // Batch update ELOs
+  const updates: Promise<any>[] = [];
+  for (const [id, delta] of eloChanges) {
+    const currentElo = eloMap.get(id) ?? 1000;
+    const newElo = Math.max(0, currentElo + delta); // Floor at 0
+    updates.push(
+      db.prepare('UPDATE agents SET elo = ? WHERE id = ?').bind(newElo, id).run()
+    );
+  }
+  await Promise.all(updates);
+}
+
 // ============ PUBLIC ROUTES ============
 
 // Register new agent
@@ -56,8 +128,10 @@ app.post('/register', rateLimitRegister, async (c) => {
 // Leaderboard
 app.get('/leaderboard', rateLimitPublic, async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const sortBy = c.req.query('sort') === 'elo' ? 'elo' : 'chips';
+  const orderClause = sortBy === 'elo' ? 'elo DESC' : 'chips DESC';
   const results = await c.env.DB.prepare(
-    'SELECT id, name, chips, hands_played, hands_won, llm_provider, llm_model FROM agents WHERE banned = 0 ORDER BY chips DESC LIMIT ?'
+    `SELECT id, name, chips, hands_played, hands_won, llm_provider, llm_model, elo FROM agents WHERE banned = 0 ORDER BY ${orderClause} LIMIT ?`
   ).bind(limit).all<AgentRow>();
 
   return c.json({
@@ -66,6 +140,9 @@ app.get('/leaderboard', rateLimitPublic, async (c) => {
       id: a.id,
       name: a.name,
       chips: a.chips,
+      elo: a.elo ?? 1000,
+      eloBadge: getEloBadge(a.elo ?? 1000),
+      eloTier: getEloTier(a.elo ?? 1000),
       handsPlayed: a.hands_played,
       handsWon: a.hands_won,
       winRate: a.hands_played > 0 ? (a.hands_won / a.hands_played * 100).toFixed(1) + '%' : '0%',
@@ -170,7 +247,37 @@ app.get('/table/:tableId/spectate', rateLimitPublic, async (c) => {
   const tableId = c.req.param('tableId');
   const id = c.env.POKER_TABLE.idFromName(tableId);
   const table = c.env.POKER_TABLE.get(id) as unknown as PokerTable;
-  const state = await table.getPublicState();
+  const state = await table.getPublicState() as any;
+
+  // Enrich player data with ELO from D1
+  if (state.players?.length > 0) {
+    try {
+      const playerIds = state.players.map((p: any) => p.id);
+      const placeholders = playerIds.map(() => '?').join(',');
+      const rows = await c.env.DB.prepare(
+        `SELECT id, elo FROM agents WHERE id IN (${placeholders})`
+      ).bind(...playerIds).all<{ id: string; elo: number }>();
+
+      const eloMap = new Map<string, number>();
+      for (const row of rows.results) {
+        eloMap.set(row.id, row.elo ?? 1000);
+      }
+
+      state.players = state.players.map((p: any) => {
+        const elo = eloMap.get(p.id) ?? 1000;
+        return {
+          ...p,
+          elo,
+          eloBadge: getEloBadge(elo),
+          eloTier: getEloTier(elo),
+        };
+      });
+    } catch (e) {
+      // Non-critical — spectate still works without ELO
+      console.error('Failed to fetch ELO for spectate:', e);
+    }
+  }
+
   return c.json(state);
 });
 
@@ -201,10 +308,14 @@ app.use('/rebuy', authMiddleware, rateLimitAuth);
 // Agent profile
 app.get('/me', async (c) => {
   const agent = c.get('agent') as any;
+  const elo = agent.elo ?? 1000;
   return c.json({
     id: agent.id,
     name: agent.name,
     chips: agent.chips,
+    elo,
+    eloBadge: getEloBadge(elo),
+    eloTier: getEloTier(elo),
     handsPlayed: agent.hands_played,
     handsWon: agent.hands_won,
     currentTable: agent.current_table,
@@ -448,6 +559,17 @@ app.post('/table/act', async (c) => {
           winnerId: hr.winnerId,
           actions: hr.actions || [],
         });
+
+        // Update ELO ratings
+        if (hr.winnerId && hr.players?.length >= 2) {
+          try {
+            const isFoldWin = hr.winningHand === 'Last player standing';
+            const playerIds = hr.players.map((p: any) => p.id);
+            await updateEloRatings(c.env.DB, hr.winnerId, playerIds, isFoldWin);
+          } catch (eloErr) {
+            console.error('ELO update failed:', eloErr);
+          }
+        }
       }
     } catch (e) {
       // Non-critical — log but don't fail the action

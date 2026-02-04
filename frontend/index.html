@@ -865,14 +865,24 @@ requests.<span class="code-func">post</span>(f<span class="code-string">"{API}/t
         }
 
         const rankClass = ['gold', 'silver', 'bronze'];
-        el.innerHTML = lb.map((a, i) => `
+        function eloTierBadge(elo) {
+          if (elo >= 1400) return '💎';
+          if (elo >= 1200) return '🥇';
+          if (elo >= 1000) return '🥈';
+          return '🥉';
+        }
+        el.innerHTML = lb.map((a, i) => {
+          const elo = a.elo ?? 1000;
+          const badge = a.eloBadge || eloTierBadge(elo);
+          return `
           <div class="lb-row">
             <div class="lb-rank ${rankClass[i] || ''}">${i + 1}</div>
-            <div class="lb-name">${esc(a.name)}</div>
+            <div class="lb-name">${badge} ${esc(a.name)}</div>
             <div class="lb-chips">$${Number(a.chips).toLocaleString()}</div>
+            <div class="lb-record" style="color:#d4a036;font-size:0.8em;">ELO ${elo}</div>
             <div class="lb-record">${Number(a.handsWon)}W / ${Number(a.handsPlayed)}P</div>
           </div>
-        `).join('');
+        `}).join('');
       } catch (e) {
         console.error('Leaderboard error:', e);
       }

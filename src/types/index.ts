@@ -137,6 +137,7 @@ export interface AgentRow {
   banned: number;
   current_table: string | null;
   rebuys: number;
+  elo: number;
 }
 
 export interface Env {
