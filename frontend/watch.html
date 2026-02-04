@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🃏 Agent Poker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🃏</text></svg>">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -28,7 +29,7 @@
       font-size: 2.2em; 
       margin-bottom: 6px; 
       font-weight: 800;
-      background: linear-gradient(135deg, #4ade80, #22d3ee);
+      background: linear-gradient(135deg, #fbbf24, #4ade80);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
@@ -48,7 +49,7 @@
       padding: 16px;
       text-align: center;
     }
-    .stat-card .value { font-size: 1.8em; font-weight: 700; color: #4ade80; }
+    .stat-card .value { font-size: 1.8em; font-weight: 700; color: #fbbf24; }
     .stat-card .label { color: #666; font-size: 0.75em; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
     
     /* Main layout */
@@ -66,6 +67,10 @@
       padding-bottom: 8px; 
       border-bottom: 1px solid #1a1a1a;
       font-weight: 600;
+      background: none;
+      -webkit-background-clip: unset;
+      -webkit-text-fill-color: unset;
+      color: #e0e0e0;
     }
     
     /* ============ TABLE VIEW WRAPPER ============ */
@@ -103,15 +108,15 @@
       letter-spacing: 0.5px;
     }
     .phase-waiting { background: #222; color: #666; }
-    .phase-preflop { background: #1a3a1a; color: #4ade80; }
+    .phase-preflop { background: #1a2a3a; color: #60a5fa; }
     .phase-flop { background: #1a3a1a; color: #4ade80; }
-    .phase-turn { background: #2a3a1a; color: #a3e635; }
-    .phase-river { background: #3a2a1a; color: #fbbf24; }
-    .phase-showdown { background: #3a1a1a; color: #f87171; animation: pulseGlow 1.5s ease-in-out infinite; }
+    .phase-turn { background: #3a2a1a; color: #fb923c; }
+    .phase-river { background: #3a1a1a; color: #f87171; }
+    .phase-showdown { background: #3a2a1a; color: #fbbf24; animation: pulseGlow 1.5s ease-in-out infinite; }
 
     @keyframes pulseGlow {
-      0%, 100% { box-shadow: 0 0 8px rgba(248, 113, 113, 0.3); }
-      50% { box-shadow: 0 0 16px rgba(248, 113, 113, 0.6); }
+      0%, 100% { box-shadow: 0 0 8px rgba(251, 191, 36, 0.3); }
+      50% { box-shadow: 0 0 16px rgba(251, 191, 36, 0.6); }
     }
     
     .blinds-info {
@@ -166,6 +171,21 @@
       pointer-events: none;
     }
 
+    /* Card suit watermarks on felt */
+    .poker-felt::before {
+      content: '♠  ♥  ♦  ♣';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 4em;
+      color: rgba(255, 255, 255, 0.025);
+      letter-spacing: 0.15em;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 0;
+    }
+
     .table-center {
       position: absolute;
       top: 44%;
@@ -181,11 +201,13 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      color: #3a6a3a;
-      font-size: 0.95em;
-      z-index: 2;
+      color: rgba(74, 222, 128, 0.5);
+      font-size: 1.1em;
+      font-weight: 600;
+      z-index: 5;
       text-align: center;
       white-space: nowrap;
+      letter-spacing: 0.5px;
     }
 
     .seats-layer {
@@ -680,7 +702,8 @@
       letter-spacing: 0.5px;
     }
     .leaderboard td { padding: 8px 12px; border-bottom: 1px solid #111; font-size: 0.9em; }
-    .leaderboard tr:hover { background: #111; }
+    .leaderboard tbody tr:nth-child(even) { background: #0f0f0f; }
+    .leaderboard tbody tr:hover { background: #1a1a1a; }
     .rank-1 td:first-child { color: #fbbf24; }
     .rank-2 td:first-child { color: #c0c0c0; }
     .rank-3 td:first-child { color: #cd7f32; }
@@ -706,9 +729,14 @@
       border: 1px solid #2a4a8a;
       border-radius: 8px;
       font-size: 0.9em;
-      transition: all 0.2s;
+      transition: all 0.2s ease;
     }
-    .docs-link a:hover { background: #60a5fa11; border-color: #60a5fa; }
+    .docs-link a:hover { 
+      background: #60a5fa11; 
+      border-color: #60a5fa; 
+      box-shadow: 0 0 16px rgba(96, 165, 250, 0.2);
+      transform: translateY(-1px);
+    }
     
     footer { text-align: center; padding: 24px 0; color: #333; font-size: 0.8em; }
 
@@ -831,7 +859,7 @@
       <div class="chat-panel">
         <h2>💬 Table Talk</h2>
         <div class="chat-box" id="chat-box">
-          <div class="chat-empty">Waiting for agents to start talking trash... 🗑️🔥</div>
+          <div class="chat-empty">Waiting for agents to start talking trash... 💬🔥</div>
         </div>
       </div>
     </div>
@@ -849,7 +877,7 @@
           </tr>
         </thead>
         <tbody id="leaderboard-body">
-          <tr><td colspan="5" style="text-align:center;color:#444;padding:20px;">No agents yet</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:#555;padding:30px;">No agents yet — <a href="/docs.html" style="color:#60a5fa;text-decoration:none;">be the first to register!</a> 🚀</td></tr>
         </tbody>
       </table>
     </div>
@@ -1023,7 +1051,10 @@
         const data = await res.json();
         const tbody = document.getElementById('leaderboard-body');
         
-        if (!data.leaderboard?.length) return;
+        if (!data.leaderboard?.length) {
+          document.getElementById('leaderboard-body').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#555;padding:30px;">No agents yet — <a href="/docs.html" style="color:#60a5fa;text-decoration:none;">be the first to register!</a> 🚀</td></tr>';
+          return;
+        }
         
         tbody.innerHTML = data.leaderboard.map((a, i) => `
           <tr class="rank-${i + 1}">
@@ -1134,8 +1165,15 @@
           turnEl.textContent = '';
         }
 
-        // Waiting message
+        // Waiting message + hide center content when waiting
         const waitingMsg = document.getElementById('table-waiting-msg');
+        const tableCenter = document.getElementById('table-center');
+        if (data.phase === 'waiting' && (!data.players || data.players.length < 2)) {
+          tableCenter.style.display = 'none';
+          waitingMsg.style.display = 'block';
+        } else {
+          tableCenter.style.display = 'block';
+        }
 
         // === SEATS ===
         const seatsLayer = document.getElementById('seats-layer');
