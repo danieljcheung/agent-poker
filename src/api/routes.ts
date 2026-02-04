@@ -79,9 +79,11 @@ app.get('/leaderboard', rateLimitPublic, async (c) => {
 app.get('/stats', rateLimitPublic, async (c) => {
   const agents = await c.env.DB.prepare('SELECT COUNT(*) as count FROM agents WHERE banned = 0').first<{ count: number }>();
   const hands = await c.env.DB.prepare('SELECT COUNT(*) as count FROM hand_history').first<{ count: number }>();
+  const tables = await c.env.DB.prepare('SELECT COUNT(*) as count FROM tables WHERE is_active = 1').first<{ count: number }>();
   return c.json({
     totalAgents: agents?.count || 0,
     totalHands: hands?.count || 0,
+    activeTables: tables?.count || 0,
   });
 });
 
@@ -98,6 +100,55 @@ app.get('/collusion', rateLimitPublic, async (c) => {
       chipFlow: p.chip_flow_a_to_b,
     })),
   });
+});
+
+// List active tables with metadata
+app.get('/tables', rateLimitPublic, async (c) => {
+  try {
+    const rows = await c.env.DB.prepare(
+      'SELECT id, created_at, last_active FROM tables WHERE is_active = 1 ORDER BY last_active DESC'
+    ).all<{ id: string; created_at: number; last_active: number }>();
+
+    const tables = await Promise.all(
+      (rows.results || []).map(async (row) => {
+        try {
+          const doId = c.env.POKER_TABLE.idFromName(row.id);
+          const table = c.env.POKER_TABLE.get(doId) as unknown as PokerTable;
+          const summary = await table.getTableSummary();
+          return {
+            id: row.id,
+            ...summary,
+            createdAt: row.created_at,
+            lastActive: row.last_active,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    // Filter out nulls (failed DO calls) and inactive tables
+    const activeTables = tables.filter(t => t !== null);
+
+    // Cleanup: mark tables with 0 players for > 5 minutes as inactive (except "main")
+    const now = Date.now();
+    for (const t of activeTables) {
+      if (t!.id !== 'main' && t!.playerCount === 0 && (now - t!.lastActive) > 5 * 60 * 1000) {
+        await c.env.DB.prepare(
+          'UPDATE tables SET is_active = 0 WHERE id = ?'
+        ).bind(t!.id).run();
+      }
+    }
+
+    const finalTables = activeTables.filter(t =>
+      t!.id === 'main' || t!.playerCount > 0 || (now - t!.lastActive) <= 5 * 60 * 1000
+    );
+
+    return c.json({ tables: finalTables });
+  } catch (e) {
+    console.error('Tables listing error:', e);
+    return c.json({ tables: [] });
+  }
 });
 
 // Reset table (admin)
@@ -192,17 +243,59 @@ app.post('/rebuy', async (c) => {
   });
 });
 
-// Join a table
+// Join a table (with auto-seating)
 app.post('/table/join', async (c) => {
   const agent = c.get('agent');
   const body = await c.req.json<{ tableId?: string }>().catch(() => ({}));
-  const tableId = (body as any)?.tableId || 'main'; // default table
+  let tableId = (body as any)?.tableId || '';
+
+  // Auto-seat: find an open table if none specified
+  if (!tableId) {
+    try {
+      const rows = await c.env.DB.prepare(
+        'SELECT id FROM tables WHERE is_active = 1 ORDER BY last_active DESC'
+      ).all<{ id: string }>();
+
+      let foundTable = false;
+      for (const row of rows.results || []) {
+        const doId = c.env.POKER_TABLE.idFromName(row.id);
+        const tbl = c.env.POKER_TABLE.get(doId) as unknown as PokerTable;
+        const summary = await tbl.getTableSummary();
+        if (summary.hasOpenSeats) {
+          tableId = row.id;
+          foundTable = true;
+          break;
+        }
+      }
+
+      // All tables full — create a new one
+      if (!foundTable) {
+        const countResult = await c.env.DB.prepare(
+          'SELECT COUNT(*) as count FROM tables'
+        ).first<{ count: number }>();
+        const nextNum = (countResult?.count || 1) + 1;
+        tableId = `table-${nextNum}`;
+
+        await c.env.DB.prepare(
+          'INSERT OR IGNORE INTO tables (id, created_at, last_active, is_active) VALUES (?, ?, ?, 1)'
+        ).bind(tableId, Date.now(), Date.now()).run();
+      }
+    } catch (e) {
+      // Fallback to main
+      tableId = 'main';
+    }
+  }
 
   const id = c.env.POKER_TABLE.idFromName(tableId);
   const table = c.env.POKER_TABLE.get(id) as unknown as PokerTable;
 
   const result = await table.join(agent.id, agent.name, agent.chips);
   if (!result.ok) return c.json({ error: result.error }, 400);
+
+  // Upsert the table record in D1 + update last_active
+  await c.env.DB.prepare(
+    'INSERT INTO tables (id, created_at, last_active, is_active) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET last_active = ?, is_active = 1'
+  ).bind(tableId, Date.now(), Date.now(), Date.now()).run();
 
   // Update agent's current table
   await c.env.DB.prepare(
@@ -298,6 +391,13 @@ app.post('/table/act', async (c) => {
   await c.env.DB.prepare(
     'UPDATE agents SET chips = ? WHERE id = ?'
   ).bind(state.yourChips, agent.id).run();
+
+  // Update table last_active timestamp
+  if (agent.current_table) {
+    await c.env.DB.prepare(
+      'UPDATE tables SET last_active = ? WHERE id = ?'
+    ).bind(Date.now(), agent.current_table).run();
+  }
 
   // Persist hand results to D1 when hand ends
   if (state.phase === 'showdown') {

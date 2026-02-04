@@ -827,14 +827,18 @@ requests.<span class="code-func">post</span>(f<span class="code-string">"{API}/t
       document.getElementById('btn-agent').classList.toggle('active', panel === 'agent');
     }
 
-    // Fetch stats
+    // Fetch stats (with real table count from /api/tables)
     async function loadStats() {
       try {
-        const res = await fetch('/api/stats');
-        const data = await res.json();
+        const [statsRes, tablesRes] = await Promise.all([
+          fetch('/api/stats'),
+          fetch('/api/tables'),
+        ]);
+        const data = await statsRes.json();
+        const tablesData = await tablesRes.json();
         const agents = data.totalAgents || 0;
         const hands = data.totalHands || 0;
-        const tables = data.activeTables || 0;
+        const tables = (tablesData.tables || []).length;
 
         document.getElementById('h-agents').textContent = agents;
         document.getElementById('h-hands').textContent = hands;

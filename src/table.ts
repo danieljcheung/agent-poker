@@ -236,6 +236,32 @@ export class PokerTable extends DurableObject<Env> {
     return { ok: true };
   }
 
+  // Lightweight summary for lobby listing — no timeout processing
+  async getTableSummary(): Promise<{
+    playerCount: number;
+    maxPlayers: number;
+    phase: string;
+    smallBlind: number;
+    bigBlind: number;
+    avgStack: number;
+    hasOpenSeats: boolean;
+  }> {
+    const activePlayers = this.state.players.filter(p => p.status !== 'sitting_out');
+    const totalPlayers = this.state.players.length;
+    const avgStack = totalPlayers > 0
+      ? Math.round(this.state.players.reduce((s, p) => s + p.chips, 0) / totalPlayers)
+      : 0;
+    return {
+      playerCount: totalPlayers,
+      maxPlayers: 6,
+      phase: this.state.phase,
+      smallBlind: this.state.smallBlind,
+      bigBlind: this.state.bigBlind,
+      avgStack,
+      hasOpenSeats: totalPlayers < 6,
+    };
+  }
+
   async getHandHistory(limit: number = 10) {
     const hands = await this.ctx.storage.list({ prefix: 'hand:' });
     const records = Array.from(hands.values()).slice(-limit);
