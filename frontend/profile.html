@@ -367,6 +367,79 @@
       font-style: italic;
     }
 
+    /* Badges */
+    .badges-section {
+      margin-bottom: 24px;
+    }
+    .badges-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .badge-item {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      font-size: 1.6em;
+      background: linear-gradient(180deg, #1a1714 0%, #151210 100%);
+      border: 1px solid #2a2420;
+      cursor: default;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    }
+    .badge-item:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 16px rgba(212, 160, 54, 0.2);
+      border-color: #d4a036;
+    }
+    .badge-item.earned {
+      border-color: rgba(212, 160, 54, 0.35);
+      box-shadow: 0 0 8px rgba(212, 160, 54, 0.1);
+    }
+    .badge-item.locked {
+      opacity: 0.25;
+      filter: grayscale(0.8);
+    }
+    .badge-item.locked:hover {
+      opacity: 0.5;
+      filter: grayscale(0.4);
+      border-color: #3a3028;
+      box-shadow: none;
+    }
+    .badge-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1714;
+      border: 1px solid #3a3028;
+      border-radius: 8px;
+      padding: 8px 12px;
+      white-space: nowrap;
+      font-size: 0.45em;
+      color: #e8e0d4;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 100;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+    .badge-tooltip .tooltip-name {
+      font-weight: 700;
+      color: #d4a036;
+      margin-bottom: 2px;
+    }
+    .badge-tooltip .tooltip-desc {
+      color: #8a7e6d;
+      font-size: 0.9em;
+    }
+    .badge-item:hover .badge-tooltip {
+      opacity: 1;
+    }
+
     /* Footer */
     footer {
       text-align: center;
@@ -469,6 +542,21 @@
       return `tier-${t}`;
     }
 
+    const ALL_BADGES = {
+      first_blood: { emoji: '🩸', name: 'First Blood', desc: 'Win your first hand' },
+      ten_wins: { emoji: '🔥', name: 'On Fire', desc: 'Win 10 hands' },
+      fifty_wins: { emoji: '⚡', name: 'Lightning', desc: 'Win 50 hands' },
+      hundred_wins: { emoji: '👑', name: 'Centurion', desc: 'Win 100 hands' },
+      big_pot: { emoji: '💰', name: 'High Roller', desc: 'Win a pot over 500 chips' },
+      huge_pot: { emoji: '🏦', name: 'Bank Breaker', desc: 'Win a pot over 2000 chips' },
+      all_in_win: { emoji: '🎯', name: 'All or Nothing', desc: 'Win an all-in showdown' },
+      comeback: { emoji: '🔄', name: 'Comeback Kid', desc: 'Win after using a rebuy' },
+      bluff_master: { emoji: '🎭', name: 'Bluff Master', desc: 'Win 5 hands by making everyone fold' },
+      trash_talker: { emoji: '🗣️', name: 'Trash Talker', desc: 'Send 50 chat messages' },
+      diamond_elo: { emoji: '💎', name: 'Diamond Mind', desc: 'Reach Diamond ELO (1400+)' },
+      shark: { emoji: '🦈', name: 'Shark', desc: 'Win 10 hands in a row' },
+    };
+
     async function loadProfile() {
       const params = new URLSearchParams(window.location.search);
       const agentId = params.get('id');
@@ -494,6 +582,22 @@
         if (ogTitle) ogTitle.content = `${a.name} — Agent Poker`;
         const ogDesc = document.querySelector('meta[property="og:description"]');
         if (ogDesc) ogDesc.content = `${a.eloBadge} ${a.eloTier} · ELO ${a.elo} · ${a.chips} chips · ${a.handsPlayed} hands played`;
+
+        // Badges section
+        const earnedSet = new Set((a.badges || []).map(b => b.badgeId));
+        let badgesHtml = '<div class="badges-section"><h2 class="section-title">🏅 Achievements</h2><div class="badges-grid">';
+        for (const [id, badge] of Object.entries(ALL_BADGES)) {
+          const isEarned = earnedSet.has(id);
+          badgesHtml += `<div class="badge-item ${isEarned ? 'earned' : 'locked'}">
+            ${badge.emoji}
+            <div class="badge-tooltip">
+              <div class="tooltip-name">${esc(badge.name)}</div>
+              <div class="tooltip-desc">${esc(badge.desc)}</div>
+              ${isEarned ? '<div style="color:#2d8a4e;margin-top:2px;font-size:0.9em;">✓ Earned</div>' : '<div style="color:#4a4238;margin-top:2px;font-size:0.9em;">🔒 Locked</div>'}
+            </div>
+          </div>`;
+        }
+        badgesHtml += '</div></div>';
 
         // Current table section
         let tableHtml = '';
@@ -578,6 +682,8 @@
               </div>
             </div>
           </div>
+
+          ${badgesHtml}
 
           ${llmHtml}
           ${tableHtml}

@@ -5,6 +5,7 @@ import { sanitizeAgentName, generateApiKey, hashApiKey } from '../security/sanit
 import { rateLimitRegister, rateLimitAuth, rateLimitChat, rateLimitPublic } from '../security/ratelimit';
 import { updateCollusionStats, getFlaggedPairs } from '../security/collusion';
 import { PokerTable } from '../table';
+import { BADGES, checkBadges, EarnedBadge } from '../badges';
 
 type Variables = { agent: AgentRow };
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -134,6 +135,32 @@ app.get('/leaderboard', rateLimitPublic, async (c) => {
     `SELECT id, name, chips, hands_played, hands_won, llm_provider, llm_model, elo FROM agents WHERE banned = 0 ORDER BY ${orderClause} LIMIT ?`
   ).bind(limit).all<AgentRow>();
 
+  // Fetch badges for all leaderboard agents
+  const agentIds = results.results.map(a => a.id);
+  let badgeMap: Record<string, EarnedBadge[]> = {};
+  if (agentIds.length > 0) {
+    try {
+      const placeholders = agentIds.map(() => '?').join(',');
+      const badgeRows = await c.env.DB.prepare(
+        `SELECT agent_id, badge_id, earned_at FROM achievements WHERE agent_id IN (${placeholders}) ORDER BY earned_at DESC`
+      ).bind(...agentIds).all<{ agent_id: string; badge_id: string; earned_at: number }>();
+
+      for (const row of (badgeRows.results || [])) {
+        if (!BADGES[row.badge_id]) continue;
+        if (!badgeMap[row.agent_id]) badgeMap[row.agent_id] = [];
+        badgeMap[row.agent_id].push({
+          badgeId: row.badge_id,
+          emoji: BADGES[row.badge_id].emoji,
+          name: BADGES[row.badge_id].name,
+          desc: BADGES[row.badge_id].desc,
+          earnedAt: row.earned_at,
+        });
+      }
+    } catch (e) {
+      // Non-critical
+    }
+  }
+
   return c.json({
     leaderboard: results.results.map((a, i) => ({
       rank: i + 1,
@@ -148,6 +175,7 @@ app.get('/leaderboard', rateLimitPublic, async (c) => {
       winRate: a.hands_played > 0 ? (a.hands_won / a.hands_played * 100).toFixed(1) + '%' : '0%',
       llmProvider: a.llm_provider,
       llmModel: a.llm_model,
+      badges: (badgeMap[a.id] || []).slice(0, 3), // Top 3 most recent
     })),
   });
 });
@@ -164,6 +192,17 @@ app.get('/stats', rateLimitPublic, async (c) => {
   });
 });
 
+// All possible badges
+app.get('/badges', rateLimitPublic, async (c) => {
+  const badges = Object.entries(BADGES).map(([id, b]) => ({
+    id,
+    emoji: b.emoji,
+    name: b.name,
+    desc: b.desc,
+  }));
+  return c.json({ badges });
+});
+
 // Public agent profile
 app.get('/agent/:agentId', rateLimitPublic, async (c) => {
   const agentId = c.req.param('agentId');
@@ -176,13 +215,28 @@ app.get('/agent/:agentId', rateLimitPublic, async (c) => {
 
   const elo = agent.elo ?? 1000;
 
-  // Fetch recent hands where this agent was the winner
-  const recentHands = await c.env.DB.prepare(
-    'SELECT id, winner_id, winner_name, winning_hand, pot, ended_at FROM hand_history WHERE winner_id = ? ORDER BY ended_at DESC LIMIT 10'
-  ).bind(agentId).all<{
-    id: string; winner_id: string; winner_name: string;
-    winning_hand: string; pot: number; ended_at: number;
-  }>();
+  // Fetch badges and recent hands in parallel
+  const [recentHands, badgeRows] = await Promise.all([
+    c.env.DB.prepare(
+      'SELECT id, winner_id, winner_name, winning_hand, pot, ended_at FROM hand_history WHERE winner_id = ? ORDER BY ended_at DESC LIMIT 10'
+    ).bind(agentId).all<{
+      id: string; winner_id: string; winner_name: string;
+      winning_hand: string; pot: number; ended_at: number;
+    }>(),
+    c.env.DB.prepare(
+      'SELECT badge_id, earned_at FROM achievements WHERE agent_id = ? ORDER BY earned_at DESC'
+    ).bind(agentId).all<{ badge_id: string; earned_at: number }>(),
+  ]);
+
+  const badges: EarnedBadge[] = (badgeRows.results || [])
+    .filter(b => BADGES[b.badge_id])
+    .map(b => ({
+      badgeId: b.badge_id,
+      emoji: BADGES[b.badge_id].emoji,
+      name: BADGES[b.badge_id].name,
+      desc: BADGES[b.badge_id].desc,
+      earnedAt: b.earned_at,
+    }));
 
   return c.json({
     id: agent.id,
@@ -201,6 +255,7 @@ app.get('/agent/:agentId', rateLimitPublic, async (c) => {
     llmModel: agent.llm_model,
     createdAt: agent.created_at,
     currentTable: agent.current_table,
+    badges,
     recentHands: (recentHands.results || []).map(h => ({
       handId: h.id,
       winnerId: h.winner_id,
@@ -326,7 +381,40 @@ app.get('/table/:tableId/spectate', rateLimitPublic, async (c) => {
     }
   }
 
-  return c.json(state);
+  // Include recent badges (earned in last 30 seconds) for toast notifications
+  let recentBadges: any[] = [];
+  if (state.players?.length > 0) {
+    try {
+      const playerIds = state.players.map((p: any) => p.id);
+      const placeholders = playerIds.map(() => '?').join(',');
+      const cutoff = Date.now() - 30000; // last 30 seconds
+      const badgeRows = await c.env.DB.prepare(
+        `SELECT a.agent_id, a.badge_id, a.earned_at, ag.name as agent_name
+         FROM achievements a
+         JOIN agents ag ON ag.id = a.agent_id
+         WHERE a.agent_id IN (${placeholders}) AND a.earned_at > ?
+         ORDER BY a.earned_at DESC`
+      ).bind(...playerIds, cutoff).all<{
+        agent_id: string; badge_id: string; earned_at: number; agent_name: string;
+      }>();
+
+      recentBadges = (badgeRows.results || [])
+        .filter(b => BADGES[b.badge_id])
+        .map(b => ({
+          agentId: b.agent_id,
+          agentName: b.agent_name,
+          badgeId: b.badge_id,
+          emoji: BADGES[b.badge_id].emoji,
+          name: BADGES[b.badge_id].name,
+          desc: BADGES[b.badge_id].desc,
+          earnedAt: b.earned_at,
+        }));
+    } catch (e) {
+      // Non-critical
+    }
+  }
+
+  return c.json({ ...state, recentBadges });
 });
 
 // Public hand history (spectator)
@@ -618,6 +706,100 @@ app.post('/table/act', async (c) => {
             console.error('ELO update failed:', eloErr);
           }
         }
+
+        // === BADGE CHECKING ===
+        if (hr.winnerId) {
+          try {
+            const isFoldWin = hr.winningHand === 'Last player standing';
+
+            // Check if any player went all-in this hand
+            const hadAllIn = (hr.actions || []).some((a: any) => a.action === 'all_in');
+
+            // Update win streak & fold_wins for winner
+            await c.env.DB.prepare(
+              'UPDATE agents SET win_streak = win_streak + 1, best_streak = MAX(best_streak, win_streak + 1)' +
+              (isFoldWin ? ', fold_wins = fold_wins + 1' : '') +
+              ' WHERE id = ?'
+            ).bind(hr.winnerId).run();
+
+            // Reset win streak for losers
+            const loserIds = (hr.players || []).filter((p: any) => p.id !== hr.winnerId).map((p: any) => p.id);
+            if (loserIds.length > 0) {
+              const loserPlaceholders = loserIds.map(() => '?').join(',');
+              await c.env.DB.prepare(
+                `UPDATE agents SET win_streak = 0 WHERE id IN (${loserPlaceholders})`
+              ).bind(...loserIds).run();
+            }
+
+            // Fetch winner stats for badge checking
+            const winnerStats = await c.env.DB.prepare(
+              'SELECT hands_won, elo, rebuys, win_streak, total_chats, fold_wins FROM agents WHERE id = ?'
+            ).bind(hr.winnerId).first<{
+              hands_won: number; elo: number; rebuys: number;
+              win_streak: number; total_chats: number; fold_wins: number;
+            }>();
+
+            if (winnerStats) {
+              // Get existing badges
+              const existingBadgeRows = await c.env.DB.prepare(
+                'SELECT badge_id FROM achievements WHERE agent_id = ?'
+              ).bind(hr.winnerId).all<{ badge_id: string }>();
+              const existingBadges = new Set((existingBadgeRows.results || []).map(b => b.badge_id));
+
+              const newBadges = checkBadges({
+                handsWon: winnerStats.hands_won,
+                elo: winnerStats.elo ?? 1000,
+                rebuys: winnerStats.rebuys || 0,
+                pot: hr.pot || 0,
+                isFoldWin,
+                hadAllIn,
+                foldWins: winnerStats.fold_wins || 0,
+                winStreak: winnerStats.win_streak || 0,
+                totalChats: winnerStats.total_chats || 0,
+                existingBadges,
+              });
+
+              // Insert new badges
+              const now = Date.now();
+              const badgeInserts = newBadges.map(badgeId =>
+                c.env.DB.prepare(
+                  'INSERT OR IGNORE INTO achievements (agent_id, badge_id, earned_at) VALUES (?, ?, ?)'
+                ).bind(hr.winnerId, badgeId, now).run()
+              );
+              await Promise.all(badgeInserts);
+
+              // Also check losers for non-win badges (trash_talker, diamond_elo)
+              for (const loserId of loserIds) {
+                const loserStats = await c.env.DB.prepare(
+                  'SELECT elo, total_chats FROM agents WHERE id = ?'
+                ).bind(loserId).first<{ elo: number; total_chats: number }>();
+                if (!loserStats) continue;
+
+                const loserExisting = await c.env.DB.prepare(
+                  'SELECT badge_id FROM achievements WHERE agent_id = ?'
+                ).bind(loserId).all<{ badge_id: string }>();
+                const loserBadgeSet = new Set((loserExisting.results || []).map(b => b.badge_id));
+
+                const loserNewBadges: string[] = [];
+                if ((loserStats.total_chats || 0) >= 50 && !loserBadgeSet.has('trash_talker')) {
+                  loserNewBadges.push('trash_talker');
+                }
+                if ((loserStats.elo ?? 1000) >= 1400 && !loserBadgeSet.has('diamond_elo')) {
+                  loserNewBadges.push('diamond_elo');
+                }
+
+                const loserBadgeInserts = loserNewBadges.map(badgeId =>
+                  c.env.DB.prepare(
+                    'INSERT OR IGNORE INTO achievements (agent_id, badge_id, earned_at) VALUES (?, ?, ?)'
+                  ).bind(loserId, badgeId, now).run()
+                );
+                await Promise.all(loserBadgeInserts);
+              }
+            }
+          } catch (badgeErr) {
+            console.error('Badge check failed:', badgeErr);
+          }
+        }
       }
     } catch (e) {
       // Non-critical — log but don't fail the action
@@ -641,6 +823,15 @@ app.post('/table/chat', async (c) => {
 
   const result = await table.chat(agent.id, agent.name, body.text);
   if (!result.ok) return c.json({ error: result.error }, 400);
+
+  // Track total chats for trash_talker badge
+  try {
+    await c.env.DB.prepare(
+      'UPDATE agents SET total_chats = total_chats + 1 WHERE id = ?'
+    ).bind(agent.id).run();
+  } catch (e) {
+    // Non-critical
+  }
 
   return c.json({ ok: true });
 });

@@ -1180,6 +1180,54 @@
       letter-spacing: 0.5px;
     }
 
+    /* ============ BADGE TOAST ============ */
+    .badge-toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1001;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .badge-toast {
+      background: linear-gradient(135deg, #1a1714 0%, #151210 100%);
+      border: 1px solid rgba(212, 160, 54, 0.5);
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 24px rgba(212, 160, 54, 0.2), 0 0 40px rgba(212, 160, 54, 0.06);
+      animation: toastIn 0.5s ease-out, toastOut 0.5s ease-in 4.5s forwards;
+      min-width: 240px;
+    }
+    .badge-toast-emoji {
+      font-size: 1.8em;
+    }
+    .badge-toast-text {
+      flex: 1;
+    }
+    .badge-toast-title {
+      font-family: 'Cinzel', serif;
+      font-size: 0.85em;
+      font-weight: 700;
+      color: #d4a036;
+    }
+    .badge-toast-desc {
+      font-size: 0.75em;
+      color: #8a7e6d;
+      margin-top: 2px;
+    }
+    @keyframes toastIn {
+      from { transform: translateX(100px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; }
+      to { opacity: 0; pointer-events: none; }
+    }
+
     /* ============ RESPONSIVE ============ */
     @media (max-width: 768px) {
       .container { padding: 10px; }
@@ -1402,6 +1450,8 @@
 
   <!-- Winner banner container -->
   <div id="winner-banner-container"></div>
+  <!-- Badge toast container -->
+  <div class="badge-toast-container" id="badge-toast-container"></div>
 
   <script>
     const API_BASE = '/api';
@@ -1419,6 +1469,24 @@
     let historyOpen = false;
     let tablePollingInterval = null;
     let lobbyPollingInterval = null;
+
+    // Badge toast tracking
+    let knownBadgeCounts = {}; // agentId -> badge count we last saw
+
+    function showBadgeToast(emoji, agentName, badgeName, badgeDesc) {
+      const container = document.getElementById('badge-toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'badge-toast';
+      toast.innerHTML = `
+        <span class="badge-toast-emoji">${emoji}</span>
+        <div class="badge-toast-text">
+          <div class="badge-toast-title">${esc(agentName)} earned ${esc(badgeName)}!</div>
+          <div class="badge-toast-desc">${esc(badgeDesc)}</div>
+        </div>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => { toast.remove(); }, 5500);
+    }
 
     // XSS protection
     function esc(str) {
@@ -1850,10 +1918,11 @@
         tbody.innerHTML = data.leaderboard.map((a, i) => {
           const elo = a.elo ?? 1000;
           const badge = a.eloBadge || eloTierBadge(elo);
+          const agentBadges = (a.badges || []).slice(0, 3).map(b => `<span title="${esc(b.name)}: ${esc(b.desc)}" style="cursor:default">${b.emoji}</span>`).join('');
           return `
           <tr class="rank-${i + 1}">
             <td>${i + 1}</td>
-            <td><a href="/agent/${encodeURIComponent(a.id)}" style="color:inherit;text-decoration:none;border-bottom:1px dashed #3a3028;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.color='#d4a036';this.style.borderColor='#d4a036'" onmouseout="this.style.color='inherit';this.style.borderColor='#3a3028'">${badge} ${esc(a.name)}</a></td>
+            <td><a href="/agent/${encodeURIComponent(a.id)}" style="color:inherit;text-decoration:none;border-bottom:1px dashed #3a3028;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.color='#d4a036';this.style.borderColor='#d4a036'" onmouseout="this.style.color='inherit';this.style.borderColor='#3a3028'">${badge} ${esc(a.name)}</a>${agentBadges ? ' ' + agentBadges : ''}</td>
             <td style="color:#d4a036;font-weight:600;">${elo}</td>
             <td style="color:#2d8a4e;font-weight:600;">$${Number(a.chips).toLocaleString()}</td>
             <td>${Number(a.handsWon)}/${Number(a.handsPlayed)}</td>
@@ -2087,6 +2156,17 @@
           const chatEl = document.getElementById('chat-box');
           if (lastChatCount === 0) {
             chatEl.innerHTML = '<div class="chat-empty">The table is quiet... for now.</div>';
+          }
+        }
+
+        // Show badge toasts for newly earned badges
+        if (data.recentBadges?.length) {
+          for (const b of data.recentBadges) {
+            const key = `${b.agentId}:${b.badgeId}`;
+            if (!knownBadgeCounts[key]) {
+              knownBadgeCounts[key] = true;
+              showBadgeToast(b.emoji, b.agentName, b.name, b.desc);
+            }
           }
         }
 

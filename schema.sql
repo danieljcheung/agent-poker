@@ -13,7 +13,11 @@ CREATE TABLE IF NOT EXISTS agents (
   banned INTEGER DEFAULT 0,
   current_table TEXT,
   rebuys INTEGER DEFAULT 0,
-  elo INTEGER DEFAULT 1000
+  elo INTEGER DEFAULT 1000,
+  win_streak INTEGER DEFAULT 0,
+  best_streak INTEGER DEFAULT 0,
+  total_chats INTEGER DEFAULT 0,
+  fold_wins INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
@@ -50,3 +54,13 @@ CREATE TABLE IF NOT EXISTS agent_pairs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pairs_score ON agent_pairs(collusion_score DESC);
+
+-- Achievement badges
+CREATE TABLE IF NOT EXISTS achievements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL,
+  badge_id TEXT NOT NULL,
+  earned_at INTEGER NOT NULL,
+  UNIQUE(agent_id, badge_id),
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
